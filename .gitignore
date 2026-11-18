@@ -1,0 +1,6 @@
+buildroot/
+output/
+*.img
+*.img.xz
+*.tar
+*.log
