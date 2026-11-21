@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang='pt-BR'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Monitor de Energia</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f7fa;color:#102c50;margin:0;padding:24px}
+.cards{display:flex;gap:16px;flex-wrap:wrap}
+.card{background:#fff;border-radius:14px;padding:20px;min-width:150px;box-shadow:0 4px 16px #0002;text-align:center}
+.v{font-size:40px;font-weight:bold;color:#00868a}
+canvas{background:#fff;border-radius:14px;margin-top:16px;width:100%;max-width:900px}
+.servo{background:#fff;border-radius:14px;padding:20px;margin-top:16px;max-width:900px;box-shadow:0 4px 16px #0002}
+.servo .v{color:#b45f06}
+input[type=range]{width:100%;margin:12px 0;accent-color:#b45f06}
+button{font:inherit;padding:8px 14px;margin:4px 6px 0 0;border-radius:8px;border:1px solid #c6d0d8;background:#f4f7fa;color:#102c50;cursor:pointer}
+button.on{background:#b45f06;border-color:#b45f06;color:#fff}
+#st,#sst{color:#667;margin-top:8px}
+</style></head><body>
+<h1>Monitor de Consumo de Energia</h1>
+<div class='cards'>
+<div class='card'><div class='v' id='v'>--</div>Tensão (V)</div>
+<div class='card'><div class='v' id='i'>--</div>Corrente (A)</div>
+<div class='card'><div class='v' id='p'>--</div>Potência (W)</div>
+<div class='card'><div class='v' id='e'>--</div>Energia (kWh)</div>
+</div>
+<canvas id='g' width='900' height='260'></canvas>
+<div id='st'>Aguardando sensor...</div>
+<div class='servo'>
+<h2>Servo (carga medida)</h2>
+<div class='v'><span id='ang'>--</span>°</div>
+<input id='sl' type='range' min='0' max='180' value='90' aria-label='Ângulo do servo'>
+<button onclick='mover(0)'>0°</button>
+<button onclick='mover(90)'>90°</button>
+<button onclick='mover(180)'>180°</button>
+<button id='var' onclick='alternarVarredura()'>Varredura</button>
+<div id='sst'>Aguardando servo...</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+async function j(u) { const r = await fetch(u, {cache: 'no-store'}); return r.json(); }
+async function post(u, corpo) {
+  const r = await fetch(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(corpo)});
+  return r.json();
+}
+async function atual() {
+  try {
+    const a = await j('/api/atual');
+    $('v').textContent = a.tensao_v.toFixed(2);
+    $('i').textContent = a.corrente_a.toFixed(3);
+    $('p').textContent = a.potencia_w.toFixed(2);
+    const e = await j('/api/energia');
+    $('e').textContent = e.kwh.toFixed(5);
+    $('st').textContent = 'Sensor OK';
+  } catch (x) { $('st').textContent = 'Falha: ' + x.message; }
+}
+async function grafico() {
+  try {
+    const h = await j('/api/historico?minutos=5');
+    const c = $('g').getContext('2d');
+    c.clearRect(0, 0, 900, 260);
+    if (h.length < 2) return;
+    const max = Math.max(...h.map(x => x.p_w), 0.1);
+    c.strokeStyle = '#00868a'; c.lineWidth = 2; c.beginPath();
+    h.forEach((x, k) => {
+      const X = k * 900 / (h.length - 1), Y = 250 - (x.p_w / max) * 220;
+      if (k) c.lineTo(X, Y); else c.moveTo(X, Y);
+    });
+    c.stroke();
+    c.fillStyle = '#667';
+    c.fillText('Potência (W), últimos 5 min, máx ' + max.toFixed(2), 8, 14);
+  } catch (x) {}
+}
+let arrastando = false, ultimoEnvio = 0;
+async function servoEstado() {
+  try {
+    const s = await j('/api/servo');
+    if (s.angulo !== null) { $('ang').textContent = s.angulo; if (!arrastando) $('sl').value = s.angulo; }
+    $('var').classList.toggle('on', s.varredura);
+    $('sst').textContent = s.ok ? 'Servo operando.' : 'PWM do servo indisponível.';
+  } catch (x) { $('sst').textContent = 'Falha: ' + x.message; }
+}
+function mover(a) { post('/api/servo', {angulo: a}).then(servoEstado).catch(() => {}); }
+function alternarVarredura() {
+  post('/api/varredura', {ligar: !$('var').classList.contains('on')}).then(servoEstado).catch(() => {});
+}
+$('sl').addEventListener('pointerdown', () => arrastando = true);
+$('sl').addEventListener('pointerup', () => arrastando = false);
+$('sl').addEventListener('input', e => {
+  $('ang').textContent = e.target.value;
+  if (Date.now() - ultimoEnvio > 100) { ultimoEnvio = Date.now(); post('/api/servo', {angulo: +e.target.value}).catch(() => {}); }
+});
+$('sl').addEventListener('change', e => { post('/api/servo', {angulo: +e.target.value}).catch(() => {}); });
+atual(); grafico(); servoEstado();
+setInterval(atual, 1000); setInterval(grafico, 5000); setInterval(servoEstado, 1000);
+</script></body></html>
