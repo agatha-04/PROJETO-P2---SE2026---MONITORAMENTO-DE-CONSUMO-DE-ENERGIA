@@ -30,3 +30,7 @@ arm_64bit=1
 
 dtparam=i2c_arm=on
 dtoverlay=ina219
+
+dtparam=i2c_arm=on
+dtoverlay=ina219
+dtoverlay=pwm,pin=18,func=2
