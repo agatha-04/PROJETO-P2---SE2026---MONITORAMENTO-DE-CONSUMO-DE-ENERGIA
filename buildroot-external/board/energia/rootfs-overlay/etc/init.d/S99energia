@@ -1,0 +1,61 @@
+#!/bin/sh
+IMAGE=energia-app:1.0
+TAR=/opt/docker/energia-app.tar
+DATA=/var/lib/energia
+SENSOR=/sys/bus/i2c/devices/1-0040
+PWMCH=/sys/class/pwm/pwmchip0/pwm0
+OPCOES='--restart unless-stopped --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp'
+
+log() { echo "[ENERGIA] $(cut -d' ' -f1 /proc/uptime) s - $1"; }
+
+espera() {
+    n=$1; shift
+    while ! "$@" >/dev/null 2>&1; do
+        n=$((n-1))
+        [ "$n" -le 0 ] && return 1
+        sleep 0.2
+    done
+    return 0
+}
+
+subir() {
+    nome=$1; shift
+    if docker container inspect $nome >/dev/null 2>&1; then
+        docker start $nome >/dev/null
+    else
+        docker run -d --name $nome $OPCOES "$@"
+    fi
+}
+
+start() {
+    log 'iniciando'
+    mkdir -p $DATA && chown 1000:1000 $DATA
+    espera 50 test -d $SENSOR/hwmon || log 'AVISO: INA219 nao encontrado'
+    espera 50 test -d $PWMCH || log 'AVISO: PWM do servo nao encontrado'
+    espera 150 docker info || { log 'Docker indisponivel'; return 1; }
+    log 'docker pronto'
+    if ! docker image inspect $IMAGE >/dev/null 2>&1; then
+        log 'PROVISIONAMENTO (primeiro boot): carregando imagem'
+        docker load -i $TAR || return 1
+    fi
+    HW=$(readlink -f $SENSOR)
+    PWMOPT=''
+    [ -d $PWMCH ] && PWMOPT="-v $(readlink -f $PWMCH):/pwm"
+    subir energia-coletor -v $DATA:/data -v $HW:/ina:ro \
+        --health-cmd 'python healthcheck.py coletor' --health-interval 10s \
+        $IMAGE python coletor.py
+    subir energia-web -v $DATA:/data $PWMOPT -p 80:5000 $IMAGE
+    log 'containers iniciados'
+}
+
+stop() {
+    docker stop energia-web energia-coletor >/dev/null 2>&1 || true
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    *) echo "Uso: $0 {start|stop|restart}"; exit 1 ;;
+esac
+

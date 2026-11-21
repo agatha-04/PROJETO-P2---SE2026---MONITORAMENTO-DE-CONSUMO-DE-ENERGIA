@@ -1,0 +1,33 @@
+#!/bin/sh
+# Ativa o PWM por hardware (GPIO18 = pwmchip0/pwm0) a 50 Hz para o servo.
+CH=/sys/class/pwm/pwmchip0
+log() { echo "[ENERGIA] $(cut -d' ' -f1 /proc/uptime) s - $1"; }
+
+start() {
+    i=0
+    while [ ! -d $CH ]; do
+        i=$((i+1))
+        [ "$i" -ge 50 ] && { log 'AVISO: pwmchip0 nao apareceu'; return 1; }
+        sleep 0.2
+    done
+    [ -d $CH/pwm0 ] || echo 0 > $CH/export
+    echo 20000000 > $CH/pwm0/period       # 20 ms = 50 Hz (antes do duty_cycle)
+    echo 1500000  > $CH/pwm0/duty_cycle   # 1,5 ms = posicao central
+    echo 1        > $CH/pwm0/enable
+    # o container web roda sem root (uid 1000): libera so este arquivo para escrita
+    chmod 666 $CH/pwm0/duty_cycle
+    log 'PWM do servo pronto'
+}
+
+stop() {
+    [ -d $CH/pwm0 ] && echo 0 > $CH/pwm0/enable
+    return 0
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    *) echo "Uso: $0 {start|stop|restart}"; exit 1 ;;
+esac
+
