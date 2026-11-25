@@ -23,17 +23,61 @@ O projeto foi projetado sob princípios de reprodutibilidade, isolamento de proc
 * **Desempenho de Boot:** Tempo de *cold boot* (da energização até a primeira resposta válida do endpoint `/health`) inferior a $15,0\\text{ s}$.
 * **Robustez e Persistência:** Banco de dados SQLite operando em modo `WAL` (*Write-Ahead Logging*) com retenção de amostras de 7 dias e preservação contínua do total de energia acumulada ($\\text{kWh}$).
 
+## 2. Arquitetura do Sistema
 
-## 2\. Arquitetura do Sistema
+O sistema opera como uma solução embarcada autônoma baseada em **Buildroot 2026.05.1 (64 bits)** na **Raspberry Pi 4 (4 GB)**, projetada para aquisição contínua, armazenamento persistente e visualização local de grandezas elétricas em corrente contínua (CC) sem dependência de acesso à Internet.
 
-O sistema divide-se em três camadas principais:
+### Diagrama de Blocos e Fluxo de Dados
 
-1. **Hardware e Kernel Linux:** O driver nativo `ina2xx` é habilitado no kernel (`CONFIG\\\_SENSORS\\\_INA2XX=y`) e configurado via *Device Tree Overlay* (`ina219.dtbo`) no endereço $\\text{I}^2\\text{C}$ `0x40` com resistor *shunt* de $0,1\~\\Omega$ ($100000\~\\mu\\Omega$). As medições são expostas pelo kernel em `/sys/bus/i2c/devices/1-0040/hwmon/hwmon\\\*`.
-2. **Camada de Containers (Docker Engine):** Uma única imagem ARM64 (`energia-app:1.0`) executa dois containers isolados que compartilham o volume persistente `/var/lib/energia`:
+```text
++-----------------------------------------------------------------------------------+
+|                                 CAMADA DE HARDWARE                                |
+|                                                                                   |
+|   [ Fonte CC ] ---> ( Shunt 0,1 Ω ) ---> [ Carga CC ]                             |
+|                           |                                                       |
+|                    [ Módulo INA219 ]  (Endereço I2C: 0x40)                        |
++---------------------------|-------------------------------------------------------+
+                            | Barramento I2C1 (SDA / SCL)
+                            v
++-----------------------------------------------------------------------------------+
+|                        LINUX EMBARCADO (BUILDROOT 2026.05.1)                      |
+|                                                                                   |
+|   [ Device Tree: ina219.dtbo ] ---> [ Driver Kernel: ina2xx ]                     |
+|                                                |                                  |
+|                                                v                                  |
+|                        /sys/bus/i2c/devices/1-0040/hwmon/hwmon*                   |
+|                                                |                                  |
+|   [ Init BusyBox ] ---> S60dockerd ---> S99energia (Provisionamento / Autostart)  |
++------------------------------------------------|----------------------------------+
+                                                 | Montagem Read-Only (/ina:ro)
+                                                 v
++-----------------------------------------------------------------------------------+
+|                     CAMADA DE CONTAINERS (IMAGEM: energia-app:1.0)                |
+|                                                                                   |
+|   +-----------------------+          +----------------------------------------+   |
+|   |   energia-coletor     |          |              energia-web               |   |
+|   | - Leitura a 1 Hz      |          | - API REST (/api/atual, /historico)    |   |
+|   | - Integração (kWh)    |          | - Endpoint /health e Dashboard HTML/JS |   |
+|   +-----------|-----------+          +-------------------|--------------------+   |
+|               | Escrita                                  | Leitura / Escrita      |
+|               +--------------------+---------------------+                        |
+|                                    v                                              |
+|                  [ Volume Host: /var/lib/energia/energia.db ]                     |
+|                         (Banco SQLite em modo WAL)                                |
++----------------------------------------------------------|------------------------+
+                                                           | Porta 80 (Host) -> 5000
+                                                           v
+                                            [ Navegador / Rede Local ]
+```
 
-   * **`energia-coletor`:** Lê os arquivos do `sysfs` a cada $1\\text{ s}$, calcula a energia acumulada ($\\text{mW}\\cdot\\text{s} \\rightarrow \\text{kWh} = \\text{mWs} / (3,6 \\times 10^9)$) e grava no SQLite.
-   * **`energia-web`:** Servidor Flask na porta `5000` (mapeada para a porta `80` do host) que fornece a interface gráfica, a API REST e o endpoint `/health`.
-3. **Orquestração de Boot (`init`):** O BusyBox inicializa o daemon do Docker (`S60dockerd`) e executa o script customizado `S99energia`, responsável pelo provisionamento (`docker load`) no primeiro boot e pela subida automática dos containers.
+### Componentes Principais
+
+* **Aquisição e Kernel (`ina2xx` + Device Tree):** O módulo INA219 comunica-se via barramento I2C1 (`0x40`) e é descrito no hardware pelo *Device Tree Overlay* (`ina219.dtbo`). O driver nativo do kernel Linux (`CONFIG_SENSORS_INA2XX=y`) expõe tensão, corrente e potência diretamente no `sysfs`, dispensando drivers proprietários ou permissões elevadas nos containers.
+* **Microsserviços em Imagem Única (`energia-app:1.0`):** Para reduzir o tamanho do *rootfs* e acelerar o carregamento no boot, uma única imagem Docker ARM64 é compartilhada por dois containers sem privilégios (`--cap-drop ALL`, usuário não-root):
+  * **`energia-coletor`:** Lê os arquivos do `sysfs` montados em modo somente leitura (`/ina:ro`) a cada 1 segundo, calcula a energia acumulada ($mW\cdot s \rightarrow kWh$) e persiste os registros no banco de dados.
+  * **`energia-web`:** Executa a aplicação Flask que serve o dashboard web (100% local, sem CDNs externas), os endpoints de consulta (`/api/atual`, `/api/historico`, `/api/energia`) e o *healthcheck* (`/health`), mapeado na porta `80` do host.
+* **Persistência e Tolerância a Falhas:** Os containers compartilham o diretório `/var/lib/energia` no sistema de arquivos `ext4`, utilizando **SQLite em modo WAL** (*Write-Ahead Logging*) para minimizar escritas no cartão microSD e evitar corrupção de dados em quedas abruptas de energia.
+* **Sequência de Boot Automatizada:** Durante a inicialização, o *init* do BusyBox executa o daemon do Docker (`S60dockerd`) seguido pelo script `S99energia`. No primeiro boot, realiza-se o provisionamento da imagem via `docker load` a partir de `/opt/docker/energia-app.tar`; nos boots seguintes, os containers são iniciados diretamente pelo Docker (`--restart unless-stopped`), mantendo o tempo total de boot frio abaixo de **15,0 segundos**.
 
 
 ## 3\. Montagem de Hardware e Segurança
