@@ -2,14 +2,16 @@
 
 Sistema embarcado desenvolvido com **Buildroot 2026.05.1** e **Docker** para monitoramento contínuo de tensão, corrente, potência e energia acumulada em cargas de corrente contínua (CC) utilizando o sensor **INA219** via barramento $\\text{I}^2\\text{C}$ na **Raspberry Pi 4 (4 GB)**.
 
-> \\\*\\\*Identificação da Equipe\\\*\\\*
-> \\\* \\\*\\\*Grupo:\\\*\\\* `Quinteto`
-> \\\* \\\*\\\*Integrantes:\\\*\\\* `\\\[Agatha Favaro]`, `\\\[Cayo Almeida - 233514]`, `\\\[Felipe Silone - 230418]`,`\\\[Leonardo Nogueira - 231046]` e `\\\[Leticia Moreiro]`
-> \\\* \\\*\\\*Repositório:\\\*\\\* `\\\[https://github.com/agatha-04/PROJETO-P2---SE2026---MONITORAMENTO-DE-CONSUMO-DE-ENERGIA
+## Identificação da Equipe
 
-]`
-
-\---
+- **Grupo:** Quinteto
+- **Integrantes:**
+  - Agatha Fávaro - 231335
+  - Cayo Almeida - 233514
+  - Felipe Silone - 230418
+  - Leonardo Nogueira - 231046
+  - Leticia Moreiro - 233423
+- **Repositório:** [PROJETO-P2---SE2026---MONITORAMENTO-DE-CONSUMO-DE-ENERGIA](https://github.com/agatha-04/PROJETO-P2---SE2026---MONITORAMENTO-DE-CONSUMO-DE-ENERGIA)
 
 ## 1\. Visão Geral e Requisitos Técnicos
 
@@ -21,7 +23,6 @@ O projeto foi projetado sob princípios de reprodutibilidade, isolamento de proc
 * **Desempenho de Boot:** Tempo de *cold boot* (da energização até a primeira resposta válida do endpoint `/health`) inferior a $15,0\\text{ s}$.
 * **Robustez e Persistência:** Banco de dados SQLite operando em modo `WAL` (*Write-Ahead Logging*) com retenção de amostras de 7 dias e preservação contínua do total de energia acumulada ($\\text{kWh}$).
 
-\---
 
 ## 2\. Arquitetura do Sistema
 
@@ -34,7 +35,6 @@ O sistema divide-se em três camadas principais:
    * **`energia-web`:** Servidor Flask na porta `5000` (mapeada para a porta `80` do host) que fornece a interface gráfica, a API REST e o endpoint `/health`.
 3. **Orquestração de Boot (`init`):** O BusyBox inicializa o daemon do Docker (`S60dockerd`) e executa o script customizado `S99energia`, responsável pelo provisionamento (`docker load`) no primeiro boot e pela subida automática dos containers.
 
-\---
 
 ## 3\. Montagem de Hardware e Segurança
 
@@ -62,7 +62,6 @@ Fonte CC (+) ---> \\\[ VIN+   INA219   VIN- ] ---> (+) CARGA (-) ---> Fonte CC (
 * O terminal negativo (`GND`) da fonte da carga deve estar interligado ao `GND` da Raspberry Pi 4 (referência comum).
 * Nunca alimente cargas de potência pelos pinos de $5\\text{ V}$ da Raspberry Pi nem conecte tensão alternada da rede elétrica ($127\\text{ V}$ / $220\\text{ V}$).
 
-\---
 
 ## 4\. Estrutura do Repositório
 
@@ -113,8 +112,6 @@ energia-rpi4/
 └── README.md
 ```
 
-\---
-
 ## 5\. Ambiente de Build e Compilação
 
 ### 5.1. Pré-requisitos no Host (Ubuntu 22.04 / 24.04)
@@ -130,7 +127,7 @@ sudo apt install -y build-essential git wget cpio unzip rsync file bc bison flex
 sudo usermod -aG docker "$USER"
 ```
 
-> \\\*\\\*Nota:\\\*\\\* Reinicie a sessão do terminal após adicionar o usuário ao grupo `docker` para executar comandos Docker sem `sudo`. Nunca utilize `sudo` para compilar o Buildroot.
+> Observação: Reinicie a sessão do terminal após adicionar o usuário ao grupo `docker` para executar comandos Docker sem `sudo`. Nunca utilize `sudo` para compilar o Buildroot.
 
 ### 5.2. Compilação Automatizada (Build do Zero)
 
@@ -168,8 +165,6 @@ Caso deseje executar cada etapa separadamente:
 
 Ao final do processo, a imagem estará disponível em `output/images/sdcard.img`.
 
-\---
-
 ## 6\. Gravação no Cartão microSD
 
 1. Identifique o dispositivo correspondente ao cartão microSD (confirme atentamente pelo tamanho para não sobrescrever o disco do computador):
@@ -192,8 +187,6 @@ Ao final do processo, a imagem estará disponível em `output/images/sdcard.img`
    xz -T0 -k output/images/sdcard.img
    sha256sum output/images/sdcard.img.xz | tee docs/sdcard.img.xz.sha256
    ```
-
-\---
 
 ## 7\. Validação por Camadas
 
@@ -242,8 +235,6 @@ Descubra o endereço IP da interface `eth0` na placa com `ip addr show eth0` e a
 http://<IP\\\_DA\\\_RASPBERRY>/
 ```
 
-\---
-
 ## 8\. Testes de Desempenho (Boot $< 15\\text{ s}$) e Robustez
 
 ### 8.1. Medição Oficial de Cold Boot
@@ -281,8 +272,6 @@ dmesg | grep ENERGIA
 |**`energia-coletor`**|Nenhuma|`/var/lib/energia:/data` (RW)<br>`/sys/bus/i2c/devices/1-0040:/ina:ro` (RO)|Execução como usuário não-root (`app`, UID `1000`), `--cap-drop ALL`, `--security-opt no-new-privileges`, `--read-only --tmpfs /tmp` e acesso restrito apenas ao diretório do sensor.|
 |**`energia-web`**|`80:5000`|`/var/lib/energia:/data` (RW)|Execução como usuário não-root (`app`, UID `1000`), `--cap-drop ALL`, `--security-opt no-new-privileges`, `--read-only --tmpfs /tmp` e sem acesso ao hardware (`/sys`).|
 
-\---
-
 ## 10\. Diagnóstico Rápido (Troubleshooting)
 
 |Sintoma|Causa Provável e Solução|
@@ -292,6 +281,3 @@ dmesg | grep ENERGIA
 |`exec format error` ao iniciar container|A imagem foi compilada para `amd64`. Refaça o build com `--platform linux/arm64` via Docker Buildx + QEMU.|
 |Endpoint `/health` retorna HTTP `503`|O coletor não gravou amostras nos últimos $5\\text{ s}$. Verifique `docker logs energia-coletor` e a montagem `/ina`.|
 |Falta de espaço ao empacotar `rootfs`|Aumente o parâmetro `BR2\\\_TARGET\\\_ROOTFS\\\_EXT4\\\_SIZE` no `menuconfig` (ex.: `1G` ou `2G`).|
-
-
-
